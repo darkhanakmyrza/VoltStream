@@ -7,22 +7,22 @@ import { useBatteryMetric } from "@/hooks/useBatterySim";
 import type { MetricCardProps, MetricTone } from "@/types/battery";
 
 const toneStyles: Record<MetricTone, string> = {
-  data: "border-blue-500/25 bg-blue-500/[0.06] text-blue-300",
-  safe: "border-emerald-500/25 bg-emerald-500/[0.06] text-emerald-300",
-  warning: "border-amber-500/35 bg-amber-500/[0.08] text-amber-300",
-  critical: "border-red-500/35 bg-red-500/[0.08] text-red-300",
+  data: "border-blue-500/20 bg-blue-500/[0.08] text-blue-700",
+  safe: "border-emerald-500/20 bg-emerald-500/[0.08] text-emerald-700",
+  warning: "border-amber-500/30 bg-amber-500/[0.12] text-amber-700",
+  critical: "border-red-500/30 bg-red-500/[0.12] text-red-700",
 };
 
 const valueStyles: Record<MetricTone, string> = {
-  data: "text-blue-300",
-  safe: "text-emerald-300",
-  warning: "text-amber-300",
-  critical: "text-red-300",
+  data: "text-blue-700",
+  safe: "text-emerald-700",
+  warning: "text-amber-700",
+  critical: "text-red-700",
 };
 
 const panelBorderStyles: Record<MetricTone, string> = {
-  data: "border-[#22303d]",
-  safe: "border-[#22303d]",
+  data: "border-slate-300/80",
+  safe: "border-slate-300/80",
   warning: "border-amber-500/45",
   critical: "border-red-500/45",
 };
@@ -106,7 +106,7 @@ const MetricCard = memo(function MetricCard({ title, metricKey, unit, icon: Icon
 
   return (
     <article className={`panel relative overflow-hidden p-5 sm:p-6 ${panelBorderStyles[tone]}`}>
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-slate-400/40 to-transparent" />
 
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -115,7 +115,7 @@ const MetricCard = memo(function MetricCard({ title, metricKey, unit, icon: Icon
             <span className={`numeric-hardware text-3xl font-semibold tracking-tight sm:text-4xl ${valueStyles[tone]}`}>
               {formatValue(value)}
             </span>
-            <span className="mb-1 font-mono text-sm uppercase tracking-[0.2em] text-zinc-500">{unit}</span>
+            <span className="mb-1 font-mono text-sm uppercase tracking-[0.2em] text-slate-500">{unit}</span>
           </div>
         </div>
 
@@ -124,7 +124,7 @@ const MetricCard = memo(function MetricCard({ title, metricKey, unit, icon: Icon
         </div>
       </div>
 
-      <p className="mt-5 text-sm text-zinc-400">{subtitle}</p>
+      <p className="mt-5 text-sm text-slate-600">{subtitle}</p>
     </article>
   );
 });
