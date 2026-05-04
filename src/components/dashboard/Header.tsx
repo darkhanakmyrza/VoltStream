@@ -43,6 +43,8 @@ export function Header({ seededAt }: HeaderProps) {
   const [toastCycle, setToastCycle] = useState(0);
 
   useEffect(() => {
+    setCurrentTime(new Date());
+
     const intervalId = window.setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);

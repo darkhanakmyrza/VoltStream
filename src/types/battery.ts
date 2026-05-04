@@ -44,7 +44,7 @@ export interface BatterySimProviderProps {
 }
 
 export interface BatteryDashboardProps {
-  seededAt: number;
+  seededAt?: number;
 }
 
 export interface HeaderProps {
