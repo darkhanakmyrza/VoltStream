@@ -1,6 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, createElement, useContext, useEffect, useRef, useSyncExternalStore } from "react";
 
-import type { BatteryEvent, BatteryReading, EventSeverity, UseBatterySimResult } from "@/types/battery";
+import type {
+  BatteryEvent,
+  BatteryHealth,
+  BatteryMetricKey,
+  BatteryReading,
+  BatterySimProviderProps,
+  BatterySnapshot,
+  BatteryStore,
+  EventSeverity,
+} from "@/types/battery";
 
 const HISTORY_LIMIT = 20;
 const LOG_LIMIT = 18;
@@ -34,6 +43,18 @@ const round2 = (value: number): number => {
   return Number(value.toFixed(2));
 };
 
+const healthStatus = (packHealth: number, stressIndex: number): BatteryHealth["status"] => {
+  if (packHealth < 90 || stressIndex > 75) {
+    return "Service Watch";
+  }
+
+  if (packHealth < 95 || stressIndex > 55) {
+    return "Thermal Watch";
+  }
+
+  return "Nominal";
+};
+
 const createSeedState = (randomSource: () => number = Math.random): BatteryVector => {
   const soc = round2(randomBetween(54, 88, randomSource));
   const current = round2(randomBetween(-18, 26, randomSource));
@@ -52,6 +73,45 @@ const toReading = (snapshot: BatteryVector, timestamp: number): BatteryReading =
     soc: round2(snapshot.soc),
     current: round2(snapshot.current),
     timestamp: new Date(timestamp).toISOString(),
+  };
+};
+
+const deriveStressIndex = (reading: BatteryReading): number => {
+  const thermalLoad = ((reading.temperature - 20) / 40) * 48;
+  const amperageLoad = (Math.abs(reading.current) / 50) * 34;
+  const reserveLoad = ((100 - reading.soc) / 100) * 18;
+
+  return round2(clamp(thermalLoad + amperageLoad + reserveLoad, 0, 100));
+};
+
+const createInitialHealth = (reading: BatteryReading, seededAt: number): BatteryHealth => {
+  const randomSource = createSeededRandom(seededAt ^ 0x6d2b79f5);
+  const baselineWear = randomBetween(1.8, 5.4, randomSource);
+  const thermalWear = (reading.temperature - 20) * 0.04;
+  const currentWear = Math.abs(reading.current) * 0.035;
+  const packHealth = round2(clamp(100 - baselineWear - thermalWear - currentWear, 88.2, 99.4));
+  const stressIndex = deriveStressIndex(reading);
+
+  return {
+    packHealth,
+    degradation: round2(100 - packHealth),
+    stressIndex,
+    status: healthStatus(packHealth, stressIndex),
+  };
+};
+
+const evolveHealth = (previous: BatteryHealth, reading: BatteryReading): BatteryHealth => {
+  const stressIndex = deriveStressIndex(reading);
+  const thermalPenalty = reading.temperature > 50 ? 0.0018 : 0.0006;
+  const loadPenalty = (Math.abs(reading.current) / 50) * 0.0014;
+  const wearRate = thermalPenalty + loadPenalty + (stressIndex / 100) * 0.0012;
+  const packHealth = round2(clamp(previous.packHealth - wearRate, 82, 99.4));
+
+  return {
+    packHealth,
+    degradation: round2(100 - packHealth),
+    stressIndex,
+    status: healthStatus(packHealth, stressIndex),
   };
 };
 
@@ -165,41 +225,130 @@ const buildInitialEvents = (history: BatteryReading[]): BatteryEvent[] => {
   ];
 };
 
-export const useBatterySim = (seededAt: number): UseBatterySimResult => {
-  const initialHistory = useMemo(() => buildInitialHistory(seededAt), [seededAt]);
-  const initialEvents = useMemo(() => buildInitialEvents(initialHistory), [initialHistory]);
-  const [history, setHistory] = useState<BatteryReading[]>(initialHistory);
-  const [currentReading, setCurrentReading] = useState<BatteryReading>(initialHistory[initialHistory.length - 1]);
-  const [events, setEvents] = useState<BatteryEvent[]>(initialEvents);
-  const latestReadingRef = useRef<BatteryReading>(initialHistory[initialHistory.length - 1]);
-  const tickRef = useRef(initialEvents.length);
-
-  useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      const previous = latestReadingRef.current;
-      const nextReading = toReading(evolveState(previous), Date.now());
-      const nextEvent = deriveEvent(nextReading, previous, tickRef.current);
-
-      tickRef.current += 1;
-      latestReadingRef.current = nextReading;
-
-      setCurrentReading(nextReading);
-      setHistory((previousHistory) => [...previousHistory.slice(-(HISTORY_LIMIT - 1)), nextReading]);
-      setEvents((previousEvents) => {
-        const event = createEvent(nextEvent.message, nextEvent.severity, nextReading.timestamp, tickRef.current);
-
-        return [event, ...previousEvents].slice(0, LOG_LIMIT);
-      });
-    }, TICK_MS);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, []);
+const buildInitialSnapshot = (seededAt: number): BatterySnapshot => {
+  const history = buildInitialHistory(seededAt);
+  const events = buildInitialEvents(history);
+  const currentReading = history[history.length - 1];
 
   return {
     currentReading,
     history,
     events,
+    health: createInitialHealth(currentReading, seededAt),
   };
+};
+
+const createBatteryStore = (seededAt: number): BatteryStore => {
+  let snapshot = buildInitialSnapshot(seededAt);
+  let intervalId: number | null = null;
+  let tickCount = snapshot.events.length;
+  const listeners = new Set<() => void>();
+
+  const emitChange = () => {
+    listeners.forEach((listener) => {
+      listener();
+    });
+  };
+
+  const updateSnapshot = () => {
+    const previous = snapshot.currentReading;
+    const nextReading = toReading(evolveState(previous), Date.now());
+    const nextEvent = deriveEvent(nextReading, previous, tickCount);
+
+    tickCount += 1;
+
+    snapshot = {
+      currentReading: nextReading,
+      history: [...snapshot.history.slice(-(HISTORY_LIMIT - 1)), nextReading],
+      events: [
+        createEvent(nextEvent.message, nextEvent.severity, nextReading.timestamp, tickCount),
+        ...snapshot.events,
+      ].slice(0, LOG_LIMIT),
+      health: evolveHealth(snapshot.health, nextReading),
+    };
+
+    emitChange();
+  };
+
+  return {
+    getSnapshot: () => snapshot,
+    subscribe: (listener) => {
+      listeners.add(listener);
+
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    start: () => {
+      if (intervalId !== null) {
+        return () => {
+          if (intervalId !== null) {
+            window.clearInterval(intervalId);
+            intervalId = null;
+          }
+        };
+      }
+
+      intervalId = window.setInterval(updateSnapshot, TICK_MS);
+
+      return () => {
+        if (intervalId !== null) {
+          window.clearInterval(intervalId);
+          intervalId = null;
+        }
+      };
+    },
+  };
+};
+
+const BatterySimContext = createContext<BatteryStore | null>(null);
+
+const useBatteryStore = (): BatteryStore => {
+  const store = useContext(BatterySimContext);
+
+  if (store === null) {
+    throw new Error("Battery store is unavailable outside BatterySimProvider.");
+  }
+
+  return store;
+};
+
+export function BatterySimProvider({ seededAt, children }: BatterySimProviderProps) {
+  const storeRef = useRef<BatteryStore | null>(null);
+
+  if (storeRef.current === null) {
+    storeRef.current = createBatteryStore(seededAt);
+  }
+
+  useEffect(() => {
+    return storeRef.current?.start();
+  }, []);
+
+  return createElement(BatterySimContext.Provider, { value: storeRef.current }, children);
+}
+
+export const useBatterySelector = <T,>(selector: (snapshot: BatterySnapshot) => T): T => {
+  const store = useBatteryStore();
+
+  return useSyncExternalStore(
+    store.subscribe,
+    () => selector(store.getSnapshot()),
+    () => selector(store.getSnapshot()),
+  );
+};
+
+export const useBatteryMetric = (metricKey: BatteryMetricKey): number => {
+  return useBatterySelector((snapshot) => snapshot.currentReading[metricKey]);
+};
+
+export const useBatteryHistory = (): BatteryReading[] => {
+  return useBatterySelector((snapshot) => snapshot.history);
+};
+
+export const useBatteryEvents = (): BatteryEvent[] => {
+  return useBatterySelector((snapshot) => snapshot.events);
+};
+
+export const useBatteryHealth = (): BatteryHealth => {
+  return useBatterySelector((snapshot) => snapshot.health);
 };

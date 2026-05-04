@@ -9,7 +9,7 @@ const config: Config = {
       },
       fontFamily: {
         sans: ["Inter", "Geist", "ui-sans-serif", "system-ui", "sans-serif"],
-        mono: ["IBM Plex Mono", "SFMono-Regular", "ui-monospace", "monospace"],
+        mono: ["JetBrains Mono", "Geist Mono", "IBM Plex Mono", "SFMono-Regular", "ui-monospace", "monospace"],
       },
     },
   },

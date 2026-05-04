@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
 export interface BatteryReading {
@@ -17,10 +18,29 @@ export interface BatteryEvent {
   timestamp: string;
 }
 
-export interface UseBatterySimResult {
+export interface BatteryHealth {
+  packHealth: number;
+  degradation: number;
+  stressIndex: number;
+  status: "Nominal" | "Thermal Watch" | "Service Watch";
+}
+
+export interface BatterySnapshot {
   currentReading: BatteryReading;
   history: BatteryReading[];
   events: BatteryEvent[];
+  health: BatteryHealth;
+}
+
+export interface BatteryStore {
+  getSnapshot: () => BatterySnapshot;
+  subscribe: (listener: () => void) => () => void;
+  start: () => () => void;
+}
+
+export interface BatterySimProviderProps {
+  seededAt: number;
+  children: ReactNode;
 }
 
 export interface BatteryDashboardProps {
@@ -28,28 +48,32 @@ export interface BatteryDashboardProps {
 }
 
 export interface HeaderProps {
-  currentTime: Date;
+  seededAt: number;
 }
 
-export interface StatsGridProps {
-  reading: BatteryReading;
-}
-
-export interface TelemetryChartProps {
-  history: BatteryReading[];
-}
-
-export interface EventLogProps {
-  events: BatteryEvent[];
-}
+export type BatteryMetricKey = keyof Pick<BatteryReading, "voltage" | "temperature" | "soc" | "current">;
 
 export type MetricTone = "data" | "safe" | "warning" | "critical";
 
 export interface MetricCardProps {
   title: string;
-  value: string;
+  metricKey: BatteryMetricKey;
   unit: string;
-  subtitle: string;
-  tone: MetricTone;
   icon: LucideIcon;
+}
+
+export interface DownloadToastProps {
+  message: string | null;
+}
+
+export interface TelemetryTooltipPayloadItem {
+  name?: string;
+  value?: number | string;
+  color?: string;
+}
+
+export interface TelemetryTooltipProps {
+  active?: boolean;
+  label?: string;
+  payload?: TelemetryTooltipPayloadItem[];
 }

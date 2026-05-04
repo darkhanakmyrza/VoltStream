@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { Activity } from "lucide-react";
 import {
   CartesianGrid,
@@ -13,7 +13,10 @@ import {
   YAxis,
 } from "recharts";
 
-import type { TelemetryChartProps } from "@/types/battery";
+import { useBatteryHistory } from "@/hooks/useBatterySim";
+import type { TelemetryTooltipProps } from "@/types/battery";
+
+const chartMonoFont = "'JetBrains Mono', 'Geist Mono', 'IBM Plex Mono', monospace";
 
 const formatChartTime = (timestamp: string): string => {
   return new Intl.DateTimeFormat("en-US", {
@@ -24,7 +27,34 @@ const formatChartTime = (timestamp: string): string => {
   }).format(new Date(timestamp));
 };
 
-export function TelemetryChart({ history }: TelemetryChartProps) {
+function TelemetryTooltip({ active, label, payload }: TelemetryTooltipProps) {
+  if (!active || payload === undefined || payload.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="min-w-[196px] rounded-2xl border border-[#24313d] bg-[#0e161f]/85 p-3 shadow-[0_24px_60px_rgba(0,0,0,0.38)] backdrop-blur-xl">
+      <p className="numeric text-xs uppercase tracking-[0.18em] text-zinc-500">{label}</p>
+      <div className="mt-3 space-y-2">
+        {payload.map((item, index) => (
+          <div key={`${item.name ?? "metric"}-${index}`} className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color ?? "#3b82f6" }} />
+              <span className="text-sm text-zinc-300">{item.name}</span>
+            </div>
+            <span className="numeric text-sm font-medium text-zinc-100">
+              {Number(item.value ?? 0).toFixed(2)} {item.name === "Voltage" ? "V" : "°C"}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export const TelemetryChart = memo(function TelemetryChart() {
+  const history = useBatteryHistory();
+  const deferredHistory = useDeferredValue(history);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -32,11 +62,11 @@ export function TelemetryChart({ history }: TelemetryChartProps) {
   }, []);
 
   const chartData = useMemo(() => {
-    return history.map((reading) => ({
+    return deferredHistory.map((reading) => ({
       ...reading,
       label: mounted ? formatChartTime(reading.timestamp) : reading.timestamp.slice(11, 19),
     }));
-  }, [history, mounted]);
+  }, [deferredHistory, mounted]);
 
   return (
     <section className="panel p-6 sm:p-7">
@@ -45,14 +75,14 @@ export function TelemetryChart({ history }: TelemetryChartProps) {
           <p className="eyebrow">Historical Telemetry</p>
           <div className="mt-2 flex items-center gap-3">
             <h2 className="text-xl font-semibold tracking-tight text-zinc-50">Voltage vs Temperature</h2>
-            <span className="rounded-full border border-zinc-800 bg-zinc-950/70 px-3 py-1 text-xs uppercase tracking-[0.18em] text-zinc-400">
+            <span className="rounded-full border border-[#24313d] bg-[#0b1218]/80 px-3 py-1 text-xs uppercase tracking-[0.18em] text-zinc-400">
               20 Point Buffer
             </span>
           </div>
           <p className="mt-2 text-sm text-zinc-400">Dual-axis trend view across the most recent 20 live telemetry samples.</p>
         </div>
 
-        <div className="hidden rounded-2xl border border-zinc-800 bg-zinc-950/70 p-3 text-sm text-zinc-400 lg:block">
+        <div className="hidden rounded-2xl border border-[#24313d] bg-[#0b1218]/80 p-3 text-sm text-zinc-400 lg:block">
           <div className="flex items-center gap-2">
             <Activity className="h-4 w-4 text-blue-400" />
             Smooth telemetry stream
@@ -70,7 +100,7 @@ export function TelemetryChart({ history }: TelemetryChartProps) {
                 axisLine={false}
                 tickLine={false}
                 minTickGap={24}
-                tick={{ fill: "#a1a1aa", fontSize: 12, fontFamily: "var(--font-mono)" }}
+                tick={{ fill: "#a1a1aa", fontSize: 12, fontFamily: chartMonoFont }}
               />
               <YAxis
                 yAxisId="left"
@@ -79,7 +109,7 @@ export function TelemetryChart({ history }: TelemetryChartProps) {
                 width={52}
                 domain={[3.2, 4.2]}
                 tickFormatter={(value: number | string) => `${Number(value).toFixed(2)}V`}
-                tick={{ fill: "#93c5fd", fontSize: 12, fontFamily: "var(--font-mono)" }}
+                tick={{ fill: "#93c5fd", fontSize: 12, fontFamily: chartMonoFont }}
               />
               <YAxis
                 yAxisId="right"
@@ -89,24 +119,11 @@ export function TelemetryChart({ history }: TelemetryChartProps) {
                 width={56}
                 domain={[20, 60]}
                 tickFormatter={(value: number | string) => `${Number(value).toFixed(2)}°`}
-                tick={{ fill: "#6ee7b7", fontSize: 12, fontFamily: "var(--font-mono)" }}
+                tick={{ fill: "#6ee7b7", fontSize: 12, fontFamily: chartMonoFont }}
               />
               <Tooltip
                 cursor={{ stroke: "rgba(82, 82, 91, 0.9)", strokeDasharray: "4 4" }}
-                contentStyle={{
-                  backgroundColor: "rgba(24, 24, 27, 0.96)",
-                  border: "1px solid rgba(63, 63, 70, 0.85)",
-                  borderRadius: "18px",
-                  boxShadow: "0 24px 60px rgba(0, 0, 0, 0.35)",
-                }}
-                itemStyle={{ color: "#e4e4e7" }}
-                labelStyle={{ color: "#a1a1aa", fontFamily: "var(--font-mono)" }}
-                formatter={(value: number | string, name: string) => {
-                  return [
-                    `${Number(value).toFixed(2)} ${name === "Voltage" ? "V" : "°C"}`,
-                    name,
-                  ];
-                }}
+                content={<TelemetryTooltip />}
               />
               <Legend
                 verticalAlign="top"
@@ -142,10 +159,10 @@ export function TelemetryChart({ history }: TelemetryChartProps) {
           </ResponsiveContainer>
         </div>
       ) : (
-        <div className="flex h-[380px] items-center justify-center rounded-3xl border border-dashed border-zinc-800 bg-zinc-950/50 text-sm text-zinc-500">
+        <div className="flex h-[380px] items-center justify-center rounded-3xl border border-dashed border-[#24313d] bg-[#0b1218]/60 text-sm text-zinc-500">
           Initializing live chart renderer...
         </div>
       )}
     </section>
   );
-}
+});
